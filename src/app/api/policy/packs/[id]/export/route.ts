@@ -110,7 +110,7 @@ export async function GET(
     const filename = `${policyPack.organization.name.replace(/[^a-zA-Z0-9]/g, "-")}-AI-Policies.${extension}`;
 
     // Return file as download
-    return new NextResponse(buffer, {
+    return new NextResponse(buffer as any, {
       headers: {
         "Content-Type": contentType,
         "Content-Disposition": `attachment; filename="${filename}"`,
