@@ -181,7 +181,7 @@ model PolicyTemplate {
 model PolicyPack {
   id              String           @id @default(cuid())
   organizationId  String
-  createdByUserId String
+  createdByUserId String?
   packVersion     Int              @default(1)
   status          PolicyPackStatus @default(DRAFT)
   createdAt       DateTime         @default(now())
@@ -190,7 +190,7 @@ model PolicyPack {
 
   // Relations
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy    User             @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  createdBy    User?            @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
   documents    PolicyDocument[]
   auditLogs    AuditLog[]
 
@@ -226,14 +226,14 @@ model PolicyDocument {
 
 model GenerationRequest {
   id               String   @id @default(cuid())
-  userId           String
+  userId           String?
   organizationId   String
   requestPayload   Json     // Full intake form data
   responseMetadata Json?    // AI response metadata (model, tokens, etc.)
   createdAt        DateTime @default(now())
 
   // Relations
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([userId])
