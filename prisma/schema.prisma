@@ -1,0 +1,326 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum IndustryType {
+  SOFTWARE_SAAS
+  HEALTHCARE
+  FINANCE_BANKING
+  RETAIL_ECOMMERCE
+  MANUFACTURING
+  EDUCATION
+  PROFESSIONAL_SERVICES
+  GOVERNMENT_PUBLIC_SECTOR
+  NON_PROFIT
+  OTHER
+}
+
+enum CompanySize {
+  MICRO       // 1-10 employees
+  SMALL       // 11-50 employees
+  MEDIUM      // 51-200 employees
+  LARGE       // 201-1000 employees
+  ENTERPRISE  // 1000+ employees
+}
+
+enum Geography {
+  US
+  EU
+  UK
+  CANADA
+  AUSTRALIA
+  GLOBAL
+  OTHER
+}
+
+enum RiskPosture {
+  CONSERVATIVE
+  BALANCED
+  AGGRESSIVE
+}
+
+enum TemplateType {
+  ACCEPTABLE_USE
+  RISK_STATEMENT
+  INTERNAL_CONTROLS
+  STAFF_GUIDELINES
+}
+
+enum PolicyPackStatus {
+  DRAFT
+  FINALIZED
+}
+
+enum AuditAction {
+  USER_REGISTERED
+  USER_LOGIN
+  USER_LOGOUT
+  ORGANIZATION_CREATED
+  ORGANIZATION_UPDATED
+  POLICY_PACK_GENERATED
+  POLICY_PACK_VIEWED
+  POLICY_PACK_UPDATED
+  POLICY_PACK_FINALIZED
+  POLICY_PACK_EXPORTED
+  POLICY_PACK_EMAILED
+  DOCUMENT_UPDATED
+  DOCUMENT_REGENERATED
+  TEMPLATE_CREATED
+  TEMPLATE_UPDATED
+}
+
+// ============================================================================
+// USER MANAGEMENT
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  role          UserRole  @default(USER)
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  organizations       UserOrganization[]
+  policyPacks         PolicyPack[]
+  generationRequests  GenerationRequest[]
+  emailSubscriptions  EmailSubscription[]
+  auditLogs           AuditLog[]
+  accounts            Account[]
+  sessions            Session[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Organization {
+  id           String       @id @default(cuid())
+  name         String
+  website      String?
+  industry     IndustryType
+  companySize  CompanySize
+  primaryGeo   Geography
+  primaryAiUse String[]     // Array of AI use cases
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  // Relations
+  users              UserOrganization[]
+  policyPacks        PolicyPack[]
+  generationRequests GenerationRequest[]
+
+  @@index([industry, companySize])
+  @@map("organizations")
+}
+
+model UserOrganization {
+  id     String           @id @default(cuid())
+  userId String
+  orgId  String
+  role   OrganizationRole @default(MEMBER)
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
+  @@index([userId])
+  @@index([orgId])
+  @@map("user_organizations")
+}
+
+// ============================================================================
+// POLICY TEMPLATES & DOCUMENTS
+// ============================================================================
+
+model PolicyTemplate {
+  id           String       @id @default(cuid())
+  templateType TemplateType
+  industry     String?      // Null = generic template
+  companySize  CompanySize?
+  geo          Geography?
+  riskPosture  RiskPosture  @default(BALANCED)
+  version      Int          @default(1)
+  isActive     Boolean      @default(true)
+  content      Json         // { title: string, sections: Array<{ id, heading, content, riskLevel, notes }> }
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  // Relations
+  policyDocuments PolicyDocument[]
+
+  @@index([templateType, isActive])
+  @@index([industry, companySize, geo])
+  @@map("policy_templates")
+}
+
+model PolicyPack {
+  id              String           @id @default(cuid())
+  organizationId  String
+  createdByUserId String
+  packVersion     Int              @default(1)
+  status          PolicyPackStatus @default(DRAFT)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  finalizedAt     DateTime?
+
+  // Relations
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User             @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  documents    PolicyDocument[]
+  auditLogs    AuditLog[]
+
+  @@index([organizationId])
+  @@index([createdByUserId])
+  @@index([status])
+  @@map("policy_packs")
+}
+
+model PolicyDocument {
+  id               String       @id @default(cuid())
+  policyPackId     String
+  templateId       String
+  documentType     TemplateType
+  title            String
+  content          Json         // { title: string, sections: Array<{ id, heading, content, riskLevel, notes }> }
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  lastRegeneratedAt DateTime?
+
+  // Relations
+  policyPack PolicyPack     @relation(fields: [policyPackId], references: [id], onDelete: Cascade)
+  template   PolicyTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([policyPackId])
+  @@index([documentType])
+  @@map("policy_documents")
+}
+
+// ============================================================================
+// ANALYTICS & TRACKING
+// ============================================================================
+
+model GenerationRequest {
+  id               String   @id @default(cuid())
+  userId           String
+  organizationId   String
+  requestPayload   Json     // Full intake form data
+  responseMetadata Json?    // AI response metadata (model, tokens, etc.)
+  createdAt        DateTime @default(now())
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@map("generation_requests")
+}
+
+model EmailSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  email     String
+  consent   Boolean  @default(false)
+  source    String   // "policy_generation", "manual_signup", etc.
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, email])
+  @@index([email])
+  @@index([consent])
+  @@map("email_subscriptions")
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  userId         String?
+  organizationId String?
+  policyPackId   String?
+  action         AuditAction
+  metadata       Json?        // Action-specific data
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime     @default(now())
+
+  // Relations
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  policyPack PolicyPack? @relation(fields: [policyPackId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_log")
+}
+
+// ============================================================================
+// NEXTAUTH MODELS
+// ============================================================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
