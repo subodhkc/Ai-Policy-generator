@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: casepack_postgres
+    environment:
+      POSTGRES_USER: casepack
+      POSTGRES_PASSWORD: casepack_dev_password
+      POSTGRES_DB: casepack
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U casepack"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (for Celery broker and cache)
+  redis:
+    image: redis:7-alpine
+    container_name: casepack_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build: ./backend
+    container_name: casepack_backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+      - case_storage:/tmp/casepack
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://casepack:casepack_dev_password@postgres:5432/casepack
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+      - DEBUG=true
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Celery Worker
+  celery_worker:
+    build: ./backend
+    container_name: casepack_worker
+    command: celery -A app.workers.celery_app worker --loglevel=info
+    volumes:
+      - ./backend:/app
+      - case_storage:/tmp/casepack
+    environment:
+      - DATABASE_URL=postgresql://casepack:casepack_dev_password@postgres:5432/casepack
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - redis
+
+  # Celery Flower (monitoring)
+  flower:
+    build: ./backend
+    container_name: casepack_flower
+    command: celery -A app.workers.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - celery_worker
+
+  # Next.js Frontend (optional - can run separately)
+  # frontend:
+  #   build: ./frontend
+  #   container_name: casepack_frontend
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+  #   environment:
+  #     - NEXT_PUBLIC_API_URL=http://localhost:8000
+  #   depends_on:
+  #     - backend
+
+volumes:
+  postgres_data:
+  case_storage:
